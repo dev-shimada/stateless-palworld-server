@@ -16,6 +16,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      date-tag: ${{ steps.date.outputs.value }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,3 +47,37 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.date.outputs.value }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  soci-index:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    env:
+      SOCI_VERSION: "0.15.0"
+      GHCR_USER: ${{ github.actor }}
+      GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Install skopeo and soci CLI
+        run: |
+          sudo apt-get update && sudo apt-get install -y skopeo
+          curl -fsSL -o soci.tar.gz \
+            "https://github.com/awslabs/soci-snapshotter/releases/download/v${SOCI_VERSION}/soci-snapshotter-${SOCI_VERSION}-linux-amd64.tar.gz"
+          sudo tar -C /usr/local/bin -xf soci.tar.gz soci
+          rm -f soci.tar.gz
+          skopeo --version
+          soci convert --help | grep -- --standalone
+
+      - name: Convert image to a SOCI-enabled image (v2)
+        run: |
+          IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          skopeo copy \
+            --src-creds "${GHCR_USER}:${GHCR_TOKEN}" \
+            "docker://${IMAGE}:latest" "oci-archive:image.tar"
+          soci convert --standalone image.tar image-soci.tar
+          for tag in latest "${{ needs.build-and-push.outputs.date-tag }}"; do
+            skopeo copy --all \
+              --dest-creds "${GHCR_USER}:${GHCR_TOKEN}" \
+              "oci-archive:image-soci.tar" "docker://${IMAGE}:${tag}"
+          done
+          rm -f image.tar image-soci.tar
