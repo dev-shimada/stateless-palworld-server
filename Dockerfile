@@ -1,5 +1,5 @@
 # palworld
-FROM --platform=$TARGETPLATFORM debian:bookworm-20260623-slim AS step2
+FROM --platform=$TARGETPLATFORM debian:bookworm-20261027-slim AS step2
 ARG TARGETPLATFORM
 
 ARG USERNAME=palworld
